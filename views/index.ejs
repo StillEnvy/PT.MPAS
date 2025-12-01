@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html dir="ltr" lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="" />
+    <meta name="author" content="" />
+
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="../../assets/images/favicon.png"
+    />
+    <title>
+      Vehicle GPS Tracker - PT.Mitra Prana Abadi Sentosa
+    </title>
+
+    <link href="../../css/style.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
+  </head>
+
+  <body>
+    <div class="preloader">
+      <div class="lds-ripple">
+        <div class="lds-pos"></div>
+        <div class="lds-pos"></div>
+      </div>
+    </div>
+    <div
+      id="main-wrapper"
+      data-navbarbg="skin6"
+      data-theme="light"
+      data-layout="vertical"
+      data-sidebartype="full"
+      data-boxed-layout="full"
+    >
+    <%- include("partials/header") %>
+      <div class="page-wrapper">
+        <!-- ============================================================== -->
+        <!-- Bread crumb and right sidebar toggle -->
+        <!-- ============================================================== -->
+        <div class="page-breadcrumb">
+          <div class="row">
+            <div class="col-5 align-self-center">
+              <h4 class="page-title">Dashboard</h4>
+            </div>
+            <div class="col-7 align-self-center">
+              <div class="d-flex align-items-center justify-content-end">
+                <nav aria-label="breadcrumb">
+                  <ol class="breadcrumb">
+                    <li class="breadcrumb-item">
+                      <a href="#">Home</a>
+                    </li>
+                    <li class="breadcrumb-item active" aria-current="page">
+                      Dashboard
+                    </li>
+                  </ol>
+                </nav>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- ============================================================== -->
+        <!-- End Bread crumb and right sidebar toggle -->
+        <!-- ============================================================== -->
+        <!-- ============================================================== -->
+        <!-- Container fluid  -->
+        <!-- ============================================================== -->
+        <div class="container-fluid">
+          <div class="row" style="margin-bottom: 30px;">
+            <div class="col">
+             <div id="map" style="height: 500px !important; width: 100% !important;"></div>
+              <script>
+                const map = L.map("map").setView(
+                  [-6.158265831232071, 106.89338157484296],
+                  15
+                );
+
+                // Tile layer
+                L.tileLayer(
+                  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                ).addTo(map);
+
+                setTimeout(function () {
+                    map.invalidateSize();
+                }, 300);
+
+                const deviceLocation = [-6.158172125383277, 106.89342900891994];
+                const deviceMarker = L.marker(deviceLocation)
+                  .addTo(map)
+
+                const devicePoint = turf.point([
+                  deviceLocation[1],
+                  deviceLocation[0],
+                ]);
+
+                const geofenceCoords = [
+                  [-6.158081454512796, 106.8933377683183],
+                  [-6.159905495961529, 106.8922863424369],
+                  [-6.1604868411881775, 106.89318756462097],
+                  [-6.158406795698174, 106.89413170214715],
+                ];
+
+                const geofencePolygon = L.polygon(geofenceCoords, {
+                  color: "blue",
+                  fillOpacity: 0.1,
+                }).addTo(map);
+ 
+                const polygonGeoJSON = turf.polygon([
+                  [
+                    ...geofenceCoords.map((c) => [c[1], c[0]]),
+                    [geofenceCoords[0][1], geofenceCoords[0][0]],
+                  ],
+                ]);
+
+                if (!turf.booleanPointInPolygon(devicePoint, polygonGeoJSON)) {
+                  alert("Device is OUTSIDE the static geofence!");
+                } else {
+                  console.log("Device is inside the static geofence.");
+                }
+
+                // ----------------------------------------------------------
+                // 4) INTERACTIVE GEOFENCING
+                // ----------------------------------------------------------
+                const drawnItems = new L.FeatureGroup();
+                map.addLayer(drawnItems);
+
+                // Enable drawing tools
+                const drawControl = new L.Control.Draw({
+                  edit: { featureGroup: drawnItems },
+                  draw: {
+                    polygon: true,
+                    rectangle: true,
+                    circle: true,
+                    marker: false,
+                    polyline: false,
+                  },
+                });
+                map.addControl(drawControl);
+
+                // When user draws a shape
+                map.on(L.Draw.Event.CREATED, function (e) {
+                  drawnItems.clearLayers(); // keep only 1 shape
+                  const layer = e.layer;
+                  drawnItems.addLayer(layer);
+
+                  // Convert the shape to GeoJSON
+                  const geojson = layer.toGeoJSON();
+
+                  // ----------------------------------------------------------
+                  // CHECK FOR POLYGON / RECTANGLE
+                  // ----------------------------------------------------------
+                  if (geojson.geometry.type === "Polygon") {
+                    const turfPolygon = geojson;
+
+                    const inside = turf.booleanPointInPolygon(
+                      devicePoint,
+                      turfPolygon
+                    );
+
+                    if (inside) {
+                      alert("Device is INSIDE the drawn geofence!");
+                    } else {
+                      alert("Device is OUTSIDE the drawn geofence!");
+                    }
+                  }
+
+                  // ----------------------------------------------------------
+                  // CHECK FOR CIRCLE GEOFENCE
+                  // ----------------------------------------------------------
+                  if (geojson.geometry.type === "Point" && layer.getRadius) {
+                    const center = geojson.geometry.coordinates; // [lng, lat]
+                    const radius = layer.getRadius(); // meters
+
+                    const distance = turf.distance(devicePoint, center, {
+                      units: "meters",
+                    });
+
+                    if (distance <= radius) {
+                      alert("Device is INSIDE the circle geofence!");
+                    } else {
+                      alert("Device is OUTSIDE the circle geofence!");
+                    }
+                  }
+                });
+              </script>
+            </div>
+          </div>
+          <div class="row">
+            <!-- column -->
+            <div class="col-12">
+              <div class="card">
+                <div class="card-body">
+                  <h4 class="card-title">Latest Sales</h4>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-hover">
+                    <thead>
+                      <tr>
+                        <th class="border-top-0">NAME</th>
+                        <th class="border-top-0">STATUS</th>
+                        <th class="border-top-0">DATE</th>
+                        <th class="border-top-0">PRICE</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td class="txt-oflo">Elite admin</td>
+                        <td>
+                          <span class="label label-success label-rounded"
+                            >SALE</span
+                          >
+                        </td>
+                        <td class="txt-oflo">April 18, 2017</td>
+                        <td><span class="font-medium">$24</span></td>
+                      </tr>
+                      <tr>
+                        <td class="txt-oflo">Real Homes WP Theme</td>
+                        <td>
+                          <span class="label label-info label-rounded"
+                            >EXTENDED</span
+                          >
+                        </td>
+                        <td class="txt-oflo">April 19, 2017</td>
+                        <td><span class="font-medium">$1250</span></td>
+                      </tr>
+                      <tr>
+                        <td class="txt-oflo">Ample Admin</td>
+                        <td>
+                          <span class="label label-purple label-rounded"
+                            >Tax</span
+                          >
+                        </td>
+                        <td class="txt-oflo">April 19, 2017</td>
+                        <td><span class="font-medium">$1250</span></td>
+                      </tr>
+                      <tr>
+                        <td class="txt-oflo">Medical Pro WP Theme</td>
+                        <td>
+                          <span class="label label-success label-rounded"
+                            >Sale</span
+                          >
+                        </td>
+                        <td class="txt-oflo">April 20, 2017</td>
+                        <td><span class="font-medium">-$24</span></td>
+                      </tr>
+                      <tr>
+                        <td class="txt-oflo">Hosting press html</td>
+                        <td>
+                          <span class="label label-success label-rounded"
+                            >SALE</span
+                          >
+                        </td>
+                        <td class="txt-oflo">April 21, 2017</td>
+                        <td><span class="font-medium">$24</span></td>
+                      </tr>
+                      <tr>
+                        <td class="txt-oflo">Digital Agency PSD</td>
+                        <td>
+                          <span class="label label-danger label-rounded"
+                            >Tax</span
+                          >
+                        </td>
+                        <td class="txt-oflo">April 23, 2017</td>
+                        <td><span class="font-medium">-$14</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- ============================================================== -->
+          <!-- Ravenue - page-view-bounce rate -->
+          <!-- ============================================================== -->
+          <!-- ============================================================== -->
+          <!-- Recent comment and chats -->
+          <!-- ============================================================== -->
+          <div class="row">
+            <!-- column -->
+            <div class="col-lg-6">
+              <div class="card">
+                <div class="card-body">
+                  <h4 class="card-title">Recent Comments</h4>
+                </div>
+                <div class="comment-widgets" style="height: 430px">
+                  <!-- Comment Row -->
+                  <div class="d-flex flex-row comment-row m-t-0">
+                    <div class="p-2">
+                      <img
+                        src="../../assets/images/users/1.jpg"
+                        alt="user"
+                        width="50"
+                        class="rounded-circle"
+                      />
+                    </div>
+                    <div class="comment-text w-100">
+                      <h6 class="font-medium">James Anderson</h6>
+                      <span class="m-b-15 d-block"
+                        >Lorem Ipsum is simply dummy text of the printing and
+                        type setting industry.
+                      </span>
+                      <div class="comment-footer">
+                        <span class="text-muted float-right"
+                          >April 14, 2016</span
+                        >
+                        <span class="label label-rounded label-primary"
+                          >Pending</span
+                        >
+                        <span class="action-icons">
+                          <a href="javascript:void(0)">
+                            <i class="ti-pencil-alt"></i>
+                          </a>
+                          <a href="javascript:void(0)">
+                            <i class="ti-check"></i>
+                          </a>
+                          <a href="javascript:void(0)">
+                            <i class="ti-heart"></i>
+                          </a>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Comment Row -->
+                  <div class="d-flex flex-row comment-row">
+                    <div class="p-2">
+                      <img
+                        src="../../assets/images/users/4.jpg"
+                        alt="user"
+                        width="50"
+                        class="rounded-circle"
+                      />
+                    </div>
+                    <div class="comment-text active w-100">
+                      <h6 class="font-medium">Michael Jorden</h6>
+                      <span class="m-b-15 d-block"
+                        >Lorem Ipsum is simply dummy text of the printing and
+                        type setting industry.
+                      </span>
+                      <div class="comment-footer">
+                        <span class="text-muted float-right"
+                          >April 14, 2016</span
+                        >
+                        <span class="label label-success label-rounded"
+                          >Approved</span
+                        >
+                        <span class="action-icons active">
+                          <a href="javascript:void(0)">
+                            <i class="ti-pencil-alt"></i>
+                          </a>
+                          <a href="javascript:void(0)">
+                            <i class="icon-close"></i>
+                          </a>
+                          <a href="javascript:void(0)">
+                            <i class="ti-heart text-danger"></i>
+                          </a>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Comment Row -->
+                  <div class="d-flex flex-row comment-row">
+                    <div class="p-2">
+                      <img
+                        src="../../assets/images/users/5.jpg"
+                        alt="user"
+                        width="50"
+                        class="rounded-circle"
+                      />
+                    </div>
+                    <div class="comment-text w-100">
+                      <h6 class="font-medium">Johnathan Doeting</h6>
+                      <span class="m-b-15 d-block"
+                        >Lorem Ipsum is simply dummy text of the printing and
+                        type setting industry.
+                      </span>
+                      <div class="comment-footer">
+                        <span class="text-muted float-right"
+                          >April 14, 2016</span
+                        >
+                        <span class="label label-rounded label-danger"
+                          >Rejected</span
+                        >
+                        <span class="action-icons">
+                          <a href="javascript:void(0)">
+                            <i class="ti-pencil-alt"></i>
+                          </a>
+                          <a href="javascript:void(0)">
+                            <i class="ti-check"></i>
+                          </a>
+                          <a href="javascript:void(0)">
+                            <i class="ti-heart"></i>
+                          </a>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Comment Row -->
+                  <div class="d-flex flex-row comment-row m-t-0">
+                    <div class="p-2">
+                      <img
+                        src="../../assets/images/users/2.jpg"
+                        alt="user"
+                        width="50"
+                        class="rounded-circle"
+                      />
+                    </div>
+                    <div class="comment-text w-100">
+                      <h6 class="font-medium">Steve Jobs</h6>
+                      <span class="m-b-15 d-block"
+                        >Lorem Ipsum is simply dummy text of the printing and
+                        type setting industry.
+                      </span>
+                      <div class="comment-footer">
+                        <span class="text-muted float-right"
+                          >April 14, 2016</span
+                        >
+                        <span class="label label-rounded label-primary"
+                          >Pending</span
+                        >
+                        <span class="action-icons">
+                          <a href="javascript:void(0)">
+                            <i class="ti-pencil-alt"></i>
+                          </a>
+                          <a href="javascript:void(0)">
+                            <i class="ti-check"></i>
+                          </a>
+                          <a href="javascript:void(0)">
+                            <i class="ti-heart"></i>
+                          </a>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- column -->
+            <div class="col-lg-6">
+              <div class="card">
+                <div class="card-body">
+                  <h4 class="card-title">Temp Guide</h4>
+                  <div class="d-flex align-items-center flex-row m-t-30">
+                    <div class="display-5 text-info">
+                      <i class="wi wi-day-showers"></i>
+                      <span>73<sup>°</sup></span>
+                    </div>
+                    <div class="m-l-10">
+                      <h3 class="m-b-0">Saturday</h3>
+                      <small>Ahmedabad, India</small>
+                    </div>
+                  </div>
+                  <table class="table no-border mini-table m-t-20">
+                    <tbody>
+                      <tr>
+                        <td class="text-muted">Wind</td>
+                        <td class="font-medium">ESE 17 mph</td>
+                      </tr>
+                      <tr>
+                        <td class="text-muted">Humidity</td>
+                        <td class="font-medium">83%</td>
+                      </tr>
+                      <tr>
+                        <td class="text-muted">Pressure</td>
+                        <td class="font-medium">28.56 in</td>
+                      </tr>
+                      <tr>
+                        <td class="text-muted">Cloud Cover</td>
+                        <td class="font-medium">78%</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <ul class="row list-style-none text-center m-t-30">
+                    <li class="col-3">
+                      <h4 class="text-info"><i class="wi wi-day-sunny"></i></h4>
+                      <span class="d-block text-muted">09:30</span>
+                      <h3 class="m-t-5">70<sup>°</sup></h3>
+                    </li>
+                    <li class="col-3">
+                      <h4 class="text-info">
+                        <i class="wi wi-day-cloudy"></i>
+                      </h4>
+                      <span class="d-block text-muted">11:30</span>
+                      <h3 class="m-t-5">72<sup>°</sup></h3>
+                    </li>
+                    <li class="col-3">
+                      <h4 class="text-info"><i class="wi wi-day-hail"></i></h4>
+                      <span class="d-block text-muted">13:30</span>
+                      <h3 class="m-t-5">75<sup>°</sup></h3>
+                    </li>
+                    <li class="col-3">
+                      <h4 class="text-info">
+                        <i class="wi wi-day-sprinkle"></i>
+                      </h4>
+                      <span class="d-block text-muted">15:30</span>
+                      <h3 class="m-t-5">76<sup>°</sup></h3>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- ============================================================== -->
+          <!-- Recent comment and chats -->
+          <!-- ============================================================== -->
+        </div>
+        <!-- ============================================================== -->
+        <!-- End Container fluid  -->
+        <!-- ============================================================== -->
+        <!-- ============================================================== -->
+        <!-- footer -->
+        <!-- ============================================================== -->
+        <footer class="footer text-center">
+          All Rights Reserved by Nice admin. Designed and Developed by
+          <a href="https://wrappixel.com">WrapPixel</a>.
+        </footer>
+        <!-- ============================================================== -->
+        <!-- End footer -->
+        <!-- ============================================================== -->
+      </div>
+      <!-- ============================================================== -->
+      <!-- End Page wrapper  -->
+      <!-- ============================================================== -->
+    </div>
+    <!-- ============================================================== -->
+    <!-- End Wrapper -->
+    <!-- ============================================================== -->
+    <!-- ============================================================== -->
+    <!-- All Jquery -->
+    <!-- ============================================================== -->
+    <script src="../../assets/libs/jquery/dist/jquery.min.js"></script>
+    <!-- Bootstrap tether Core JavaScript -->
+    <script src="../../assets/libs/popper.js/dist/umd/popper.min.js"></script>
+    <script src="../../assets/libs/bootstrap/dist/js/bootstrap.min.js"></script>
+    <!-- slimscrollbar scrollbar JavaScript -->
+    <script src="../../assets/extra-libs/sparkline/sparkline.js"></script>
+    <!--Wave Effects -->
+    <script src="../../js/waves.js"></script>
+    <!--Menu sidebar -->
+    <script src="../../js/sidebarmenu.js"></script>
+    <!--Custom JavaScript -->
+    <script src="../../js/custom.min.js"></script>
+    <!--This page JavaScript -->
+    <!-- chartis chart
+    <script src="../../assets/libs/chartist/dist/chartist.min.js"></script>
+    <script src="../../assets/libs/chartist-plugin-tooltips/dist/chartist-plugin-tooltip.min.js"></script>
+    <script src="../../dist/js/pages/dashboards/dashboard1.js"></script> -->
+  </body>
+</html>
